@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/umardx/tf-renderer-engine/validation"
+	"github.com/umardx/tf-renderer-engine/spec"
 )
 
 func RenderHandler(logger *zap.Logger) http.HandlerFunc {
@@ -27,7 +28,22 @@ func RenderHandler(logger *zap.Logger) http.HandlerFunc {
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("validated successfully"))
+		bucketSpec := spec.BucketSpec{
+			Region:     req.Payload.Properties.AWSRegion,
+			ACL:        req.Payload.Properties.ACL,
+			BucketName: req.Payload.Properties.BucketName,
+		}
+
+		svc := spec.NewService()
+
+		output, err := svc.Render(bucketSpec)
+		if err != nil {
+			logger.Error("render failed", zap.Error(err))
+			http.Error(w, "failed to render terraform template", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(output))
 	}
 }
