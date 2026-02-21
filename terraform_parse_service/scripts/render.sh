@@ -17,7 +17,7 @@ else
     "properties": {
       "aws-region": "us-west-1",
       "acl": "private",
-      "bucket-name": "triplaaaa-bucket"
+      "bucket-name": "haha-bucket"
     }
   }
 }'
