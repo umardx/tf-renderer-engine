@@ -237,3 +237,72 @@ Although not fully implemented for this, in a production setting I would configu
 - GCS, S3 or DynamoDB for state locking in AWS
 
 This prevents state corruption and can enable encryption to secure the state in case it stored sensitive state.
+
+---
+
+## Part 3 — Helm Chart Review and Fixes
+
+### 1. Initial Deployment Attempt
+```bash
+helm install my-app ./helm --dry-run
+...
+templates/backend-deployment.yaml: error converting YAML to JSON: yaml: line 2: mapping values are not allowed in this context
+...
+```
+
+There was issue on YAML. I fix it by removing unatend character `\`
+Anyway, I can see is that the selector field is missing (spotted by my linter LOL), which is required.
+Add this line into `backend-deployment.yaml`:
+```yaml
+...
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+...
+```
+
+Add this line into `frontend-deployment.yaml` too:
+```yaml
+...
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend-app
+...
+```
+
+From this, I became interested in checking the service as well, and voila: the selector `backend-service.yaml` is fine.
+Fix `frontend-service.yaml`:
+```yaml
+  selector:
+    app: frontend-app
+```
+
+Without this fix, this resulted in:
+- Service having zero endpoints
+- Traffic not routing
+
+Alternative **Fix:**
+Standardized labels and selectors to use consistent naming via Helm templates:
+
+labels:
+```
+app: {{ .Values.backend.name }}
+```
+
+selector:
+```
+app: {{ .Values.backend.name }}
+```
+
+#### 2. Hardcoded Values
+Some image names, ports, or replica counts were hardcoded directly in templates.
+
+This reduces chart flexibility.
+
+**Fix:**
+TODO: Try to move configurable values into `values.yaml`
+
