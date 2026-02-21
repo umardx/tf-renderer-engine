@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/umardx/tf-renderer-engine/api"
+	"github.com/umardx/tf-renderer-engine/middleware"
 )
 
 func main() {
@@ -15,6 +16,8 @@ func main() {
 	defer logger.Sync()
 
 	r := chi.NewRouter()
+
+	r.Use(middleware.Recover(logger))
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
