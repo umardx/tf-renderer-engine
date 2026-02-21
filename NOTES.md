@@ -298,11 +298,127 @@ selector:
 app: {{ .Values.backend.name }}
 ```
 
-#### 2. Hardcoded Values
-Some image names, ports, or replica counts were hardcoded directly in templates.
+### 2. Hardcoded Values
 
-This reduces chart flexibility.
+So templates must respect that exact structure based on values.yaml
+We aligned exactly to:
+```
+.Values.replicaCount
+.Values.backend.image.repository
+.Values.backend.service.port
+.Values.resources
+```
 
-**Fix:**
-TODO: Try to move configurable values into `values.yaml`
+As result, we can deploy it in dry-run:
+```
+NAME: my-app
+LAST DEPLOYED: Sun Feb 22 02:30:36 2026
+NAMESPACE: local
+STATUS: pending-install
+REVISION: 1
+TEST SUITE: None
+HOOKS:
+MANIFEST:
+---
+# Source: my-apps/templates/backend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# Source: my-apps/templates/frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  type: LoadBalancer
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+---
+# Source: my-apps/templates/backend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: "hashicorp/http-echo:0.2.3"
+          ports:
+            - containerPort: 8080
+          resources:
+            {}
+---
+# Source: my-apps/templates/frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: "nginx:1.16.0"
+          ports:
+            - containerPort: 80
+          resources:
+            {}
+---
+# Source: my-apps/templates/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+```
 
+Validate using EndpointSlice
+```
+› kg EndpointSlice
+NAME             ADDRESSTYPE   PORTS   ENDPOINTS      AGE
+backend-pw587    IPv4          8080    10.222.0.251   42s
+frontend-kw6vc   IPv4          80      10.222.1.95    42s
+```
