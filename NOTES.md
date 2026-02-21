@@ -422,3 +422,128 @@ NAME             ADDRESSTYPE   PORTS   ENDPOINTS      AGE
 backend-pw587    IPv4          8080    10.222.0.251   42s
 frontend-kw6vc   IPv4          80      10.222.1.95    42s
 ```
+
+---
+
+## Part 4 — System Behavior Under Load and Failure
+
+> I assume this regarding helm chart?
+
+Under moderate load, behavior will depend on:
+1. Backend CPU and memory limits
+2. Whether HPA is enabled
+3. Kubernetes node capacity
+4. Network latency between services
+
+when HPA is disabled, scaling is static and depend on `replicaCount`.
+This means the backend could become CPU under pressure when increased request volume.
+
+If HPA is enabled and kube metrics server is available, scaling will happen based on CPU utilization. However, scaling speed time depends on:
+
+- Pod resource requests config
+- Metrics interval
+- Startup time pod
+
+Let say, in Java, startup can be so long within minutes. While in Golang, it fast.
+
+
+### Failure Scenarios
+#### 1. Let say a backend pod crashes:
+
+1. Kubernetes Deployment automatically recreates it.
+2. Liveness probes help detect unresponsive containers then restart it.
+3. Readiness probes prevent traffic routing to unhealthy pods (EndPointSlice).
+
+While in helm chart templates, liveness and readiness probes are not set, this can be 5xx issues anytime from the client.
+
+And without PDB, voluntary disruptions (e.g., node drain) may reduce availability without notice.
+
+
+#### 2. Let say Kubernetes node fails
+
+1. Pods are rescheduled to the other nodes (if capacity available).
+2. Recovery the cluster autoscalar will remove the bad node and adding new node.
+
+Without cluster autoscaler new pods forever pending if no node available or fit by the pod resource request.
+
+#### 3. Let say we are facing a high traffic surge
+
+When traffic spikes suddenly:
+1. Without HPA: client requests may queue or time out and CPU saturated.
+2. With HPA: pods scale based on CPU utilization, but scaling is reactive. Initial start latency may temporarily degrade performance. Sometimes we must set max scaling to keep DB connection pool stable.
+
+Common mitigation strategies:
+1. Configure HPA with appropriate thresholds. Each service, may different configuration
+2. Right-sizing CPU requests
+3. Consider pre-warming replicas during predictable traffic spikes
+
+Sometime business allow it, we can do circuit breaker or apply rate limiter at the ingress layer.
+
+### Long Term Resilience
+
+1. Enable CPU based HPA with properly defined resource requests.
+2. Ensure minimum availability during voluntary disruptions with PDB.
+3. Enable autoscalar node scaling under increased demand.
+4. Observability and Alerting
+Earlier detection with analyzing log/metric and alert can prevent outage.
+5. Avoid `latest` tags in production like values.yaml provided in the test.
+Use immutable version tags. I know this is hard and causing headache when troubleshooting.
+
+---
+
+## Part 5 — Approach & Tools
+### Overall Approach
+I approached the assignment incrementally, before optimization, I prefer to see what the common practice and stability.
+
+1. Ensured each component worked independently:
+   - API service compiled and responded correctly.
+   - Terraform configuration validated and produced a successful over tf plan.
+   - Helm chart valid when dry-run.
+
+2. Identified breaking issues before refactoring:
+   - Detected Terraform module version mismatch (EKS v19 changes).
+   - Validated deployment (label/selector) match with its service.
+   - Verified Service EndpointSlice.
+
+The guiding principle was:  
+**Make it work → Make it correct → Make it resilient.**
+> For helm chart template, I will make it resilient later LOL.
+
+---
+
+### Terraform Investigation
+To resolve the EKS module issue:
+
+- Terraform init and validate
+- Reviewed the `terraform-aws-modules/eks` in GitHub repository.
+- Examined the CHANGELOG for breaking changes in v18/v19.
+- Confirmed removal of `node_groups` and migration to `eks_managed_node_groups`.
+
+This ensured compatibility with the pinned module version instead of downgrading blindly.
+
+---
+
+### Kubernetes & Helm Debugging
+To debug Helm deployment:
+
+- Used `helm lint` and `helm template` to inspect rendered manifests. Or we can direcly use `helm install --dry-run`
+- Checked Service routing using `kubectl get EndpointSlice`
+- Later once deployed, used `kubectl describe service` to confirm selector alignment.
+- Used `kubectl port-forward` for functional validation.
+
+The main focus was validating label/selector consistency and correct port mapping.
+
+---
+
+### Go API Development
+
+The API service was implemented in Go using:
+- `net/http` for HTTP handling
+- `chi` for routing
+- `zap` for structured logging
+- `go-playground/validator` for request validation
+
+I used:
+- Official Go documentation
+- Library documentation for `chi` and `zap`
+- Cursor AI for exploring usage patterns and understanding logging `zap` best practices. It help me to improove grammer on creating README.md and NOTES.md as well.
